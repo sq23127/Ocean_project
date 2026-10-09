@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+
+# 虚拟环境
+.venv/
+
+# PyCharm
+.idea/
+
+# 原始大数据（u/v 超 GitHub 100MB 限制；按 数据指南.md 重新下载）
+01_data/
+
+# 系统文件
+.DS_Store
+Thumbs.db
