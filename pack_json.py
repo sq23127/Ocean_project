@@ -1,23 +1,34 @@
-<!DOCTYPE html>
+# -*- coding: utf-8 -*-
+# 通用格式转换文件：读取 02_Geojson/scs_field.json，内嵌进自带网页模板，
+# 生成 index_standalone.html（双击即可打开，无需服务器/联网安装）。
+import os
+
+DATA = "02_Geojson/scs_field.json"
+OUT = "index_standalone.html"
+MARK = "const EMBEDDED_DATA = null; // pack_standalone.py 会把 null 替换为真实数据对象"
+
+TEMPLATE = r'''<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>南海三维可视化演示</title>
+<title>中国海域三维可视化演示</title>
 <script>window.CESIUM_BASE_URL="https://cesium.com/downloads/cesiumjs/releases/1.118/Build/Cesium/";</script>
 <script src="https://cesium.com/downloads/cesiumjs/releases/1.118/Build/Cesium/Cesium.js"></script>
 <link href="https://cesium.com/downloads/cesiumjs/releases/1.118/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
 <style>
   html,body,#cesiumContainer{width:100%;height:100%;margin:0;padding:0;font-family:"Microsoft YaHei",sans-serif;}
   .box{background:rgba(30,40,60,.10);border-radius:10px;color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.45);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);}
-  #panel{position:absolute;top:12px;left:12px;z-index:999;padding:14px;width:218px;}
+  #panel{position:absolute;top:12px;left:12px;z-index:999;padding:14px;width:218px;max-height:calc(100vh - 24px);overflow-y:auto;box-sizing:border-box;}
   #panel h3{margin:0 0 10px;font-size:15px;border-bottom:1px solid rgba(255,255,255,.25);padding-bottom:8px;}
-  #panel button{width:100%;margin:4px 0;padding:9px 6px;border:none;border-radius:6px;cursor:pointer;background:#15b8d0;color:#fff;font-size:13px;transition:background .2s,transform .08s;}
+  #panel button{width:100%;margin:4px 0;padding:9px 6px;border:none;border-radius:10px;cursor:pointer;background:#15b8d0;color:#fff;font-size:13px;transition:background .2s,transform .08s;}
   #panel button:hover{background:#4d86c4;}
   #panel button:active{transform:scale(.97);}
   #panel button.active{background:#e08a2e;}
   #panel button.imp{background:#DD1D3A;} #panel button.imp:hover{background: #920d23;}
   #panel button.imp.main{background:#86AB21;} #panel button.imp.main:hover{background:#2f9558;}
   #panel h4{margin:12px 0 6px;font-size:13px;color:#cdd9ea;font-weight:normal;}
+  .btngrid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+  .btngrid button{margin:0;padding:11px 2px;font-size:12px;border-radius:8px;line-height:1.2;}
   #status{font-size:11px;color:#9fe89f;margin:6px 1px;min-height:15px;word-break:break-all;}
   #title{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:998;color:#fff;font-size:19px;font-weight:bold;text-shadow:0 2px 6px rgba(0,0,0,.85);letter-spacing:1px;}
   #legend{position:absolute;bottom:24px;right:16px;z-index:999;padding:10px 12px;font-size:12px;display:none;}
@@ -43,13 +54,18 @@
   <button class="imp" id="impCur">导入 海流（u/v）</button>
   <button class="imp" id="impTemp">导入 海温</button>
   <button class="imp" id="impSal">导入 盐度</button>
+  <button class="imp" id="impWave">导入 波浪（WAM）</button>
   <input type="file" id="fileInput" accept=".json,application/json" style="display:none">
   <div id="status">正在载入内嵌数据…</div>
   <h4>② 显示</h4>
-  <button data-mode="temp">显示 温度</button>
-  <button data-mode="sal">显示 盐度</button>
-  <button data-mode="particle">显示 海流粒子</button>
-  <button data-mode="clear">全部清除</button>
+  <div class="btngrid">
+    <button data-mode="temp">温度</button>
+    <button data-mode="sal">盐度</button>
+    <button data-mode="particle">海流粒子</button>
+    <button data-mode="swh">波高</button>
+    <button data-mode="waveparticle">波浪粒子</button>
+    <button data-mode="clear">全部清除</button>
+  </div>
 </div>
 
 <div id="legend" class="box">
@@ -61,6 +77,7 @@
 <div id="infoBox" class="box">
   <div class="t">数据信息</div>
   <div class="r"><span>数据日期</span><b id="dataDate">—</b></div>
+  <div class="r"><span>数据来源</span><b id="dataSource">ECMWF（ORAS5）</b></div>
   <div class="r"><span>经度</span><b id="curLon">--</b></div>
   <div class="r"><span>纬度</span><b id="curLat">--</b></div>
   <div class="hint">先导入数据文件，再点上方按钮显示；鼠标移动可看坐标和该点数据</div>
@@ -73,6 +90,7 @@
   <div class="r"><span>盐度</span><b id="htSal"></b></div>
   <div class="r"><span>流速</span><b id="htSpeed"></b></div>
   <div class="r"><span>u / v</span><b id="htUV"></b></div>
+  <div class="r"><span>波高</span><b id="htSwh"></b></div>
 </div>
 
 <script>
@@ -98,6 +116,7 @@ function setupGrid(d){
   G={b,nx,ny,dLon:(b.east-b.west)/(nx-1),dLat:(b.north-b.south)/(ny-1)};
 }
 function bil(grid,fi,fj){
+  if(!grid)return null;
   const nx=G.nx,ny=G.ny;
   const i0=Math.floor(fi),j0=Math.floor(fj),ti=fi-i0,tj=fj-j0;
   function a(j,i){if(i<0||i>=nx||j<0||j>=ny)return null;return grid[j][i];}
@@ -106,13 +125,11 @@ function bil(grid,fi,fj){
   return (v00*(1-ti)+v10*ti)*(1-tj)+(v01*(1-ti)+v11*ti)*tj;
 }
 function lonLat(fi,fj){return {lon:G.b.west+fi*G.dLon,lat:G.b.south+fj*G.dLat};}
-function isOcean(fi,fj){
-  if(data.temperature)return bil(data.temperature,fi,fj)!==null;
-  return bil(data.u,fi,fj)!==null;
-}
+function isOcean(fi,fj){return pOcean?bil(pOcean,fi,fj)!==null:false;}
 function hasTemp(){return data&&!!data.temperature;}
 function hasSal(){return data&&!!data.salinity;}
 function hasCur(){return data&&!!data.u&&!!data.v;}
+function hasWave(){return data&&!!data.swh&&!!data.mwd;}
 function sampLL(grid,lon,lat){return bil(grid,(lon-G.b.west)/G.dLon,(lat-G.b.south)/G.dLat);}
 
 // ================= 3. 颜色 =================
@@ -234,6 +251,7 @@ async function applyCoast(canvas){
 // ================= 5. 真实海流粒子（RK2）=================
 const R_EARTH=6371008.8, P_HEIGHT=60;
 let pc=null,segLines=[],remover=null,parts=[],spMax=1;
+let pU=null,pV=null,pOcean=null,pKind="current";
 const P_N=900,TRAIL=6,SEG=TRAIL-1,DT=8*3600;
 function hideAll(arr){for(const ln of arr)ln.show=false;}
 
@@ -244,11 +262,29 @@ function randFi(){
   }
   return null;
 }
-function startParticles(){
+function buildWaveUV(vs){
+  const ny=G.ny,nx=G.nx,wU=new Array(ny),wV=new Array(ny);
+  for(let j=0;j<ny;j++){wU[j]=new Array(nx);wV[j]=new Array(nx);
+    for(let i=0;i<nx;i++){
+      const m=data.mwd[j][i];
+      if(m===null){wU[j][i]=null;wV[j][i]=null;continue;}
+      const dir=(m-180)*Math.PI/180;
+      wU[j][i]=Math.sin(dir)*vs; wV[j][i]=Math.cos(dir)*vs;
+    }}
+  return {wU:wU,wV:wV};
+}
+function startParticles(kind){
   stopParticles();
-  const sg=new Array(G.ny);
+  pKind=kind||"current";
+  let sg;
+  if(pKind==="wave"){
+    const r=buildWaveUV(0.6); pU=r.wU; pV=r.wV; pOcean=data.swh; spMax=0.6;
+  }else{
+    pU=data.u;pV=data.v;pOcean=data.temperature||data.u;
+    sg=new Array(G.ny);
   for(let j=0;j<G.ny;j++){sg[j]=new Array(G.nx);for(let i=0;i<G.nx;i++){const u=data.u[j][i],v=data.v[j][i];sg[j][i]=(u===null||v===null)?null:Math.sqrt(u*u+v*v);}}
-  spMax=fieldRange(sg)[1]||1;
+    spMax=fieldRange(sg)[1]||1;
+  }
   pc=new Cesium.PolylineCollection();
   viewer.scene.primitives.add(pc);
   parts=[];segLines=[];
@@ -266,9 +302,15 @@ function startParticles(){
   let _pf=0;
   remover=viewer.scene.postRender.addEventListener(function(){_pf++;if(_pf%2===1)return;step();}); // 隔帧推进，省一半计算
   document.getElementById("legend").style.display="block";
-  document.getElementById("legendName").textContent="海流速度（m/s）";
-  document.getElementById("legendMin").textContent="0.00";
-  document.getElementById("legendMax").textContent=spMax.toFixed(2);
+  if(pKind==="wave"){
+    document.getElementById("legendName").textContent="波浪传播方向（WAM）";
+    document.getElementById("legendMin").textContent="—";
+    document.getElementById("legendMax").textContent="—";
+  }else{
+    document.getElementById("legendName").textContent="海流速度（m/s）";
+    document.getElementById("legendMin").textContent="0.00";
+    document.getElementById("legendMax").textContent=spMax.toFixed(2);
+  }
 }
 function drift(fi,fj,u,v){
   const ll=lonLat(fi,fj),cos=Math.cos(ll.lat*Math.PI/180);
@@ -279,11 +321,11 @@ function step(){
   for(let i=0;i<P_N;i++){
     let p=parts[i];const arr=segLines[i];
     if(!p){const o=randFi();if(o)p={fi:o.fi,fj:o.fj,trail:[{fi:o.fi,fj:o.fj}]};parts[i]=p;if(!p){hideAll(arr);continue;}}
-    const u1=bil(data.u,p.fi,p.fj),v1=bil(data.v,p.fi,p.fj);
+    const u1=bil(pU,p.fi,p.fj),v1=bil(pV,p.fi,p.fj);
     if(u1===null||v1===null){parts[i]=null;hideAll(arr);continue;}
     const d1=drift(p.fi,p.fj,u1,v1);
-    const u2=bil(data.u,p.fi+d1.dfi/2,p.fj+d1.dfj/2)||u1;
-    const v2=bil(data.v,p.fi+d1.dfi/2,p.fj+d1.dfj/2)||v1;
+    const u2=bil(pU,p.fi+d1.dfi/2,p.fj+d1.dfj/2)||u1;
+    const v2=bil(pV,p.fi+d1.dfi/2,p.fj+d1.dfj/2)||v1;
     const d2=drift(p.fi,p.fj,u2,v2);
     p.fi+=d2.dfi;p.fj+=d2.dfj;
     if(p.fi<0||p.fi>G.nx-1||p.fj<0||p.fj>G.ny-1||!isOcean(p.fi,p.fj)){parts[i]=null;hideAll(arr);continue;}
@@ -295,7 +337,8 @@ function step(){
       if(s<p.trail.length-1){
         const A=p.trail[s],B=p.trail[s+1],la=lonLat(A.fi,A.fj),lb=lonLat(B.fi,B.fj);
         ln.positions=Cesium.Cartesian3.fromDegreesArray([la.lon,la.lat,lb.lon,lb.lat]);
-        ln.material.uniforms.color=colorAt(sp/spMax,Math.pow((s+1)/SEG,1.6)*0.95); // 尾淡头亮
+        const al=Math.pow((s+1)/SEG,1.6)*0.95;
+        ln.material.uniforms.color=pKind==="wave"?new Cesium.Color(0.7,0.9,1.0,al):colorAt(sp/spMax,al);
         ln.show=true;
       } else ln.show=false;
     }
@@ -316,10 +359,12 @@ document.querySelectorAll("#panel button[data-mode]").forEach(btn=>btn.addEventL
   if(!data){alert("请先在上方导入数据");return;}
   if(mode==="temp"){if(!hasTemp()){alert("还没导入海温，请点「导入 海温」或三合一");return;}showSurface("temp",data.temperature,"海表温度","℃");}
   else if(mode==="sal"){if(!hasSal()){alert("还没导入盐度，请点「导入 盐度」或三合一");return;}showSurface("sal",data.salinity,"海表盐度","PSU");}
-  else if(mode==="particle"){if(!hasCur()){alert("还没导入海流，请点「导入 海流」或三合一");return;}startParticles();}
+  else if(mode==="particle"){if(!hasCur()){alert("还没导入海流，请点「导入 海流」或三合一");return;}startParticles("current");}
+  else if(mode==="swh"){if(!hasWave()){alert("还没导入波浪，请点「导入 波浪（WAM）」");return;}showSurface("swh",data.swh,"有效波高","m");}
+  else if(mode==="waveparticle"){if(!hasWave()){alert("还没导入波浪，请点「导入 波浪（WAM）」");return;}startParticles("wave");}
   btn.classList.add("active");
 }));
-function clearAll(){removeSurface("temp");removeSurface("sal");stopParticles();document.getElementById("legend").style.display="none";}
+function clearAll(){removeSurface("temp");removeSurface("sal");removeSurface("swh");stopParticles();document.getElementById("legend").style.display="none";}
 
 // ================= 7. 数据：内嵌 + 分类导入合并 =================
 const EMBEDDED_DATA = null; // pack_standalone.py 会把 null 替换为真实数据对象
@@ -327,24 +372,28 @@ function applyData(d,kind){
   if(kind==="field"||!data){
     data={bounds:d.bounds,nx:d.nx,ny:d.ny,
       temperature:d.temperature||null,salinity:d.salinity||null,
-      u:d.u||null,v:d.v||null};
+      u:d.u||null,v:d.v||null,
+      swh:d.swh||null,mwd:d.mwd||null,mwp:d.mwp||null};
   }else{
     if(d.temperature)data.temperature=d.temperature;
     if(d.salinity)data.salinity=d.salinity;
     if(d.u){data.u=d.u;data.v=d.v;}
+    if(d.swh)data.swh=d.swh;
+    if(d.mwd)data.mwd=d.mwd;
+    if(d.mwp)data.mwp=d.mwp;
   }
   setupGrid(data);refreshStatus();
 }
 function refreshStatus(){
   const a=[];
-  if(hasTemp())a.push("温度");if(hasSal())a.push("盐度");if(hasCur())a.push("海流");
+  if(hasTemp())a.push("温度");if(hasSal())a.push("盐度");if(hasCur())a.push("海流");if(hasWave())a.push("波浪");
   document.getElementById("status").textContent=
     a.length?("已有："+a.join("、")+"；网格 "+data.nx+"×"+data.ny):"尚无数据";
 }
 const fi2=document.getElementById("fileInput");
 let pendingKind="field";
 function bindImport(id,kind){document.getElementById(id).addEventListener("click",function(){pendingKind=kind;fi2.click();});}
-bindImport("impField","field");bindImport("impCur","current");bindImport("impTemp","temp");bindImport("impSal","sal");
+bindImport("impField","field");bindImport("impCur","current");bindImport("impTemp","temp");bindImport("impSal","sal");bindImport("impWave","wave");
 function parseDate(n){const m=n.match(/(\d{4})\D?(\d{2})\D?(\d{2})(?:\D?(\d{2}))?/);return m?m[1]+"-"+m[2]+"-"+m[3]+" "+(m[4]?m[4]:"00")+":00":null;}
 fi2.addEventListener("change",function(){
   const file=this.files[0];if(!file)return;
@@ -352,17 +401,17 @@ fi2.addEventListener("change",function(){
   rd.onload=function(){
     let d;try{d=JSON.parse(rd.result);}catch(e){alert("不是合法 JSON");return;}
     if(!d.bounds||!d.nx||!d.ny){alert("结构不对，请用 build_json.py 生成的 JSON");return;}
-    if(!d.temperature&&!d.salinity&&!d.u){alert("这个文件里没有可用要素");return;}
+    if(!d.temperature&&!d.salinity&&!d.u&&!d.swh&&!d.mwd){alert("这个文件里没有可用要素");return;}
     clearAll();applyData(d,pendingKind);
-    const dt=parseDate(file.name);
-    document.getElementById("dataDate").textContent=dt||"（文件名未含日期）";
+    const dt=d.time||parseDate(file.name);
+    document.getElementById("dataDate").textContent=d.time?(d.time+"（月平均）"):(dt||"（文件名未含日期）");
   };
   rd.readAsText(file);this.value="";
 });
-// 内嵌数据：独立网页打开即带 2026.7 数据
+// 内嵌数据：独立网页打开即带数据
 if(EMBEDDED_DATA){
   applyData(EMBEDDED_DATA,"field");
-  document.getElementById("dataDate").textContent="2026-07（月平均·内嵌）";
+  document.getElementById("dataDate").textContent=EMBEDDED_DATA.time?(EMBEDDED_DATA.time+"（月平均）"):"—";
 }else{
   document.getElementById("status").textContent="无内嵌数据，请点上方按钮导入";
 }
@@ -386,9 +435,23 @@ hh.setInputAction(function(mv){
     document.getElementById("htSal").textContent=fmt(s,"PSU");
     document.getElementById("htSpeed").textContent=(u!==null&&v!==null)?fmt(Math.sqrt(u*u+v*v),"m/s",3):"—";
     document.getElementById("htUV").textContent=(u!==null)?u.toFixed(3)+" / "+v.toFixed(3):"—";
+    document.getElementById("htSwh").textContent=fmt(sampLL(data.swh,lon,lat),"m");
     document.getElementById("hoverTip").style.display="block";
   } else document.getElementById("hoverTip").style.display="none";
 },Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 </script>
 </body>
-</html>
+</html>'''
+
+if not os.path.exists(DATA):
+    raise SystemExit("没找到 %s，请先运行 build_json.py" % DATA)
+with open(DATA, encoding="utf-8") as f:
+    data_text = f.read()
+if MARK not in TEMPLATE:
+    raise SystemExit("自带模板里没找到占位标记")
+html = TEMPLATE.replace(MARK, "const EMBEDDED_DATA = " + data_text + ";", 1)
+with open(OUT, "w", encoding="utf-8") as f:
+    f.write(html)
+
+print("已输出：", os.path.abspath(OUT))
+print("文件大小：%.2f MB" % (os.path.getsize(OUT) / 1048576))
