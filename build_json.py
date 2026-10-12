@@ -10,7 +10,7 @@ import xarray as xr
 from scipy.interpolate import griddata
 
 # ================= 参数（一般只改这里）=================
-W, E, S, N = 105.0, 122.0, 0.0, 23.0   # 目标海域：西 东 南 北
+W, E, S, N = 105.0, 128.0, 0.0, 42.0   # 中国海全域：西105 东128 南0(赤道/南沙) 北42(渤海北)
 STEP = 0.1                              # 输出网格精度（度）
 TIME_INDEX = 0                          # 取第几个时间层：0=最早，-1=最新；下了整年/多日就改这个数
 WAVE_AGG = "month"                      # 波浪多时间层聚合：month月平均 / day日平均 / none取某层(TIME_INDEX)

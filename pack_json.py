@@ -107,7 +107,7 @@ viewer.resolutionScale=1.0;
 viewer.scene.fxaa=false;
 viewer.scene.msaaSamples=4;
 viewer.scene.globe.baseColor=Cesium.Color.fromCssColorString("#0a2a43");
-viewer.camera.setView({destination:Cesium.Rectangle.fromDegrees(105,0,122,23)});
+viewer.camera.setView({destination:Cesium.Rectangle.fromDegrees(105,0,128,42)});
 
 // ================= 2. 网格基础 / 采样 =================
 let G=null;
